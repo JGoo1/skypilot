@@ -11,7 +11,6 @@ import colorama
 
 from sky import sky_logging
 from sky.backends import backend_utils
-from sky.utils import db_utils
 
 logger = sky_logging.init_logger(__name__)
 
@@ -36,8 +35,6 @@ _CURSOR.execute("""\
     recovery_count INTEGER DEFAULT 0,
     job_duration FLOAT DEFAULT 0)""")
 
-db_utils.add_column_to_table(_CURSOR, _CONN, 'spot', 'failure_reason', 'TEXT')
-
 # job_duration is the time a job actually runs (including the
 # setup duration) before last_recover, excluding the provision
 # and recovery time.
@@ -50,7 +47,7 @@ _CONN.commit()
 columns = [
     'job_id', 'job_name', 'resources', 'submitted_at', 'status',
     'run_timestamp', 'start_at', 'end_at', 'last_recovered_at',
-    'recovery_count', 'job_duration', 'failure_reason'
+    'recovery_count', 'job_duration'
 ]
 
 
@@ -103,26 +100,19 @@ class SpotStatus(enum.Enum):
     # Terminal statuses
     # SUCCEEDED: The job is finished successfully.
     SUCCEEDED = 'SUCCEEDED'
-    # CANCELLED: The job is cancelled by the user.
-    CANCELLED = 'CANCELLED'
     # FAILED: The job is finished with failure from the user's program.
     FAILED = 'FAILED'
     # FAILED_SETUP: The job is finished with failure from the user's setup
     # script.
     FAILED_SETUP = 'FAILED_SETUP'
-    # FAILED_PRECHECKS: the underlying `sky.launch` fails due to precheck
-    # errors only. I.e., none of the failover exceptions, if any, is due to
-    # resources unavailability. This exception includes the following cases:
-    # 1. The optimizer cannot find a feasible solution.
-    # 2. Precheck errors: invalid cluster name, failure in getting cloud user
-    #    identity, or unsupported feature.
-    FAILED_PRECHECKS = 'FAILED_PRECHECKS'
     # FAILED_NO_RESOURCE: The job is finished with failure because there is no
     # resource available in the cloud provider(s) to launch the spot cluster.
     FAILED_NO_RESOURCE = 'FAILED_NO_RESOURCE'
     # FAILED_CONTROLLER: The job is finished with failure because of unexpected
     # error in the controller process.
     FAILED_CONTROLLER = 'FAILED_CONTROLLER'
+    # CANCELLED: The job is cancelled by the user.
+    CANCELLED = 'CANCELLED'
 
     def is_terminal(self) -> bool:
         return self in self.terminal_statuses()
@@ -137,20 +127,15 @@ class SpotStatus(enum.Enum):
     @classmethod
     def terminal_statuses(cls) -> List['SpotStatus']:
         return [
-            cls.SUCCEEDED,
-            cls.FAILED,
-            cls.FAILED_SETUP,
-            cls.FAILED_PRECHECKS,
-            cls.FAILED_NO_RESOURCE,
-            cls.FAILED_CONTROLLER,
-            cls.CANCELLED,
+            cls.SUCCEEDED, cls.FAILED, cls.FAILED_SETUP, cls.FAILED_NO_RESOURCE,
+            cls.FAILED_CONTROLLER, cls.CANCELLED
         ]
 
     @classmethod
     def failure_statuses(cls) -> List['SpotStatus']:
         return [
-            cls.FAILED, cls.FAILED_SETUP, cls.FAILED_PRECHECKS,
-            cls.FAILED_NO_RESOURCE, cls.FAILED_CONTROLLER
+            cls.FAILED, cls.FAILED_SETUP, cls.FAILED_NO_RESOURCE,
+            cls.FAILED_CONTROLLER
         ]
 
 
@@ -162,7 +147,6 @@ _SPOT_STATUS_TO_COLOR = {
     SpotStatus.RECOVERING: colorama.Fore.CYAN,
     SpotStatus.SUCCEEDED: colorama.Fore.GREEN,
     SpotStatus.FAILED: colorama.Fore.RED,
-    SpotStatus.FAILED_PRECHECKS: colorama.Fore.RED,
     SpotStatus.FAILED_SETUP: colorama.Fore.RED,
     SpotStatus.FAILED_NO_RESOURCE: colorama.Fore.RED,
     SpotStatus.FAILED_CONTROLLER: colorama.Fore.RED,
@@ -256,15 +240,12 @@ def set_succeeded(job_id: int, end_time: float):
 
 def set_failed(job_id: int,
                failure_type: SpotStatus,
-               failure_reason: str,
                end_time: Optional[float] = None):
     assert failure_type.is_failed(), failure_type
     end_time = time.time() if end_time is None else end_time
-
     fields_to_set = {
         'end_at': end_time,
         'status': failure_type.value,
-        'failure_reason': failure_reason,
     }
     previsou_status = _CURSOR.execute(
         'SELECT status FROM spot WHERE job_id=(?)', (job_id,)).fetchone()
@@ -283,7 +264,15 @@ def set_failed(job_id: int,
         WHERE job_id=(?) AND end_at IS null""",
         (*list(fields_to_set.values()), job_id))
     _CONN.commit()
-    logger.info(failure_reason)
+    if failure_type in [SpotStatus.FAILED, SpotStatus.FAILED_SETUP]:
+        logger.info(
+            f'Job failed due to user code (status: {failure_type.value}).')
+    elif failure_type == SpotStatus.FAILED_NO_RESOURCE:
+        logger.info('Job failed due to failing to find available resources '
+                    'after retries.')
+    else:
+        assert failure_type == SpotStatus.FAILED_CONTROLLER, failure_type
+        logger.info('Job failed due to unexpected controller failure.')
 
 
 def set_cancelled(job_id: int):
@@ -325,18 +314,6 @@ def get_status(job_id: int) -> Optional[SpotStatus]:
     if status is None:
         return None
     return SpotStatus(status[0])
-
-
-def get_failure_reason(job_id: int) -> Optional[str]:
-    """Get the failure reason of a job."""
-    reason = _CURSOR.execute(
-        """\
-        SELECT failure_reason FROM spot WHERE job_id=(?)""",
-        (job_id,)).fetchone()
-    if reason is None:
-        return None
-    # reason[0] will be None if it is unfilled.
-    return reason[0]
 
 
 def get_spot_jobs() -> List[Dict[str, Any]]:

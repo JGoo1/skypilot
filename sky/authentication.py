@@ -22,6 +22,7 @@ from sky.utils import common_utils
 from sky.utils import subprocess_utils
 from sky.utils import ux_utils
 from sky.skylet.providers.lambda_cloud import lambda_utils
+from sky.skylet.providers.scp import scp_utils
 
 logger = sky_logging.init_logger(__name__)
 
@@ -333,4 +334,10 @@ def setup_lambda_authentication(config: Dict[str, Any]) -> Dict[str, Any]:
     file_mounts[PUBLIC_SSH_KEY_PATH] = PUBLIC_SSH_KEY_PATH
     config['file_mounts'] = file_mounts
 
+    return config
+
+def setup_scp_authentication(config: Dict[str, Any]) -> Dict[str, Any]:
+    scp_client = scp_utils.SCPClient()
+    config['auth']['ssh_private_key'] = scp_client.ssh_private_key_path
+    config['auth']['ssh_public_key'] = scp_client.ssh_public_key_path
     return config

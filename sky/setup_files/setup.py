@@ -80,9 +80,7 @@ install_requires = [
     'oauth2client',
     'pandas',
     'pendulum',
-    # PrettyTable with version >=2.0.0 is required for the support of
-    # `add_rows` method.
-    'PrettyTable>=2.0.0',
+    'PrettyTable',
     # Lower local ray version is not fully supported, due to the
     # autoscaler issues (also tracked in #537).
     'ray[default]>=1.9.0,<=2.2.0',

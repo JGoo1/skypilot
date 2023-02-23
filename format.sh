@@ -25,7 +25,6 @@ YAPF_VERSION=$(yapf --version | awk '{print $2}')
 PYLINT_VERSION=$(pylint --version | head -n 1 | awk '{print $2}')
 PYLINT_QUOTES_VERSION=$(pip list | grep pylint-quotes | awk '{print $2}')
 MYPY_VERSION=$(mypy --version | awk '{print $2}')
-BLACK_VERSION=$(black --version | head -n 1 | awk '{print $2}')
 
 # # params: tool name, tool version, required version
 tool_version_check() {
@@ -39,7 +38,6 @@ tool_version_check "yapf" $YAPF_VERSION "$(grep yapf requirements-dev.txt | cut 
 tool_version_check "pylint" $PYLINT_VERSION "$(grep "pylint==" requirements-dev.txt | cut -d'=' -f3)"
 tool_version_check "pylint-quotes" $PYLINT_QUOTES_VERSION "$(grep "pylint-quotes==" requirements-dev.txt | cut -d'=' -f3)"
 tool_version_check "mypy" "$MYPY_VERSION" "$(grep mypy requirements-dev.txt | cut -d'=' -f3)"
-tool_version_check "black" "$BLACK_VERSION" "$(grep black requirements-dev.txt | cut -d'=' -f3)"
 
 YAPF_FLAGS=(
     '--recursive'
@@ -47,15 +45,7 @@ YAPF_FLAGS=(
 )
 
 YAPF_EXCLUDES=(
-    '--exclude' 'sky/skylet/providers/aws/**'
-    '--exclude' 'sky/skylet/providers/gcp/**'
-    '--exclude' 'sky/skylet/providers/azure/**'
-)
-
-BLACK_INCLUDES=(
-    'sky/skylet/providers/aws'
-    'sky/skylet/providers/gcp'
-    'sky/skylet/providers/azure'
+    '--exclude' 'sky/skylet/providers/**'
 )
 
 # Format specified files
@@ -98,9 +88,6 @@ else
    # Format only the files that changed in last commit.
    format_changed
 fi
-echo 'SkyPilot yapf: Done'
-echo 'SkyPilot Black:'
-black "${BLACK_INCLUDES[@]}"
 
 # Run mypy
 # TODO(zhwu): When more of the codebase is typed properly, the mypy flags
@@ -111,6 +98,8 @@ mypy $(cat tests/mypy_files.txt)
 # Run Pylint
 echo 'Sky Pylint:'
 pylint --load-plugins pylint_quotes sky
+echo 'Sky Utils Pylint:'
+pylint --load-plugins pylint_quotes sky/utils
 
 if ! git diff --quiet &>/dev/null; then
     echo 'Reformatted files. Please review and stage the changes.'
