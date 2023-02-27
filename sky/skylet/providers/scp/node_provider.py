@@ -107,7 +107,8 @@ class SCPNodeProvider(NodeProvider):
                             tag_filters: Dict[str, str]) -> Dict[str, Any]:
 
         def match_tags(vm):
-            tags = {} if vm is None else vm['tags']
+            vm_info = self.metadata[vm['virtualServerId']]
+            tags = {} if vm_info is None else vm_info['tags']
             for k, v in tag_filters.items():
                 if tags.get(k) != v:
                     return False
@@ -115,7 +116,8 @@ class SCPNodeProvider(NodeProvider):
 
         vms = self._list_instances_in_cluster()
         nodes = [self._extract_metadata(vm) for vm in filter(match_tags, vms)]
-        self.cached_nodes = {node['virtualServerName']: node for node in nodes}
+
+        self.cached_nodes = {node['virtualServerId']: node for node in nodes}
         return self.cached_nodes
 
     def _extract_metadata(self, vm: Dict[str, Any]) -> Dict[str, Any]:
@@ -185,18 +187,22 @@ class SCPNodeProvider(NodeProvider):
         # region = self.provider_config['region']
         vm_info = self.scp_client.create_instances(server_name=self.cluster_name)
         # assert len(vm_list) == 1, len(vm_list)
-        virtualServerId = vm_info.get('resourceId', None)
+        vm_id = vm_info.get('resourceId', None)
+        assert vm_id is not None, "Failed to create virtual server"
+        self.metadata[vm_id] = {'tags': config_tags}
+
 
         # Wait for booting to finish
         # TODO(ewzeng): For multi-node, launch all vms first and then wait.
         while True:
             vms = self.scp_client.list_instances()
             for vm in vms:
-                if vm['virtualServerId'] == virtualServerId and vm['virtualServerState'] == 'RUNNING':
+                if vm['virtualServerId'] == vm_id and vm['virtualServerState'] == 'RUNNING':
 
                     #Push ssk eky to created virtual server
                     external_ip = self.scp_client.get_external_ip(virtual_server_id=vm['virtualServerId'], ip=vm['ip'])
                     self.scp_client.set_ssh_key(external_ip=external_ip)
+                    self.scp_client.set_default_config(external_ip=external_ip)
 
                     return
             time.sleep(10)

@@ -9,6 +9,7 @@ import hmac
 import base64
 from typing import Any, Dict, List
 import paramiko
+import random
 
 CREDENTIALS_PATH = '~/.scp/scp_credential'
 API_ENDPOINT = 'https://openapi.samsungsdscloud.com/virtual-server'
@@ -153,15 +154,18 @@ class SCPClient:
         url = f'{API_ENDPOINT}/v2/virtual-servers'
         method = 'POST'
 
-        self.set_timestamp()
-        self.set_signature(url=url, method=method)
-
         # f = open('./test.json', )
         f = open(TEMP_VM_JSON_PATH, )
         data = json.load(f)
 
         if server_name:
             data['virtualServerName'] = server_name
+
+        data['nic']['internalIpAddress'] = self.get_new_ip()
+
+        self.set_timestamp()
+        self.set_signature(url=url, method=method)
+
         response = requests.post(f'{API_ENDPOINT}/v2/virtual-servers',
                                  json=data,
                                  headers=self.headers)
@@ -254,3 +258,33 @@ class SCPClient:
         client.exec_command('chmod 644 ~/.ssh/authorized_keys')
         client.exec_command('chmod 700 ~/.ssh/')
 
+    def set_default_config(self, external_ip)->None:
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(external_ip, username=self.user_name, password=self.password)
+        client.exec_command('echo "nameserver 8.8.8.8" > /etc/resolv.conf')
+        client.exec_command('pip3 install --upgrade --ignore-installed pip setuptools')
+        client.exec_command('pip3 install -U "ray[default]"')
+        client.exec_command('echo export LANG=ko_KR.utf8 >> ~/.bashrc')
+        client.exec_command('echo export LC_ALL=ko_KR.utf8 >> ~/.bashrc')
+        client.exec_command('source ~/.bashrc')
+        client.exec_command('yum -y install rsync')
+
+    def get_new_ip(self):
+        used_ip_list = []
+        vm_list = self.list_instances()
+        for vm in vm_list:
+            used_ip_list.append(vm['ip'])
+
+        print('Creating new IP for SCP VM')
+        while True:
+            rand_num = random.randint(1,255)
+            ip = f'192.168.0.{rand_num}'
+            if ip not in used_ip_list:
+                print("Success to create new IP")
+                return ip
+#
+# if __name__ == '__main__':
+#     client  = SCPClient()
+#     tmp = client.list_instances()
+#     print(tmp)
