@@ -250,25 +250,41 @@ class SCPClient:
         except FileNotFoundError:
             print('Public SSH key does not exist.')
 
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        client.connect(external_ip, username=self.user_name, password=self.password)
-        client.exec_command('mkdir -p ~/.ssh/')
-        client.exec_command('echo "%s" > ~/.ssh/authorized_keys' % key)
-        client.exec_command('chmod 644 ~/.ssh/authorized_keys')
-        client.exec_command('chmod 700 ~/.ssh/')
+        command_list = ['mkdir -p ~/.ssh/',
+                        'echo "%s" > ~/.ssh/authorized_keys' % key,
+                        'chmod 644 ~/.ssh/authorized_keys',
+                        'chmod 700 ~/.ssh/']
+        self.exec_ssh_command(command_list=command_list, external_ip=external_ip)
 
     def set_default_config(self, external_ip)->None:
+        command_list = [
+            'echo "nameserver 8.8.8.8" > /etc/resolv.conf',
+            'pip3 install --upgrade --ignore-installed pip setuptools',
+            'pip3 install -U "ray[default]"',
+            'echo export LANG=ko_KR.utf8 >> ~/.bashrc',
+            'echo export LC_ALL=ko_KR.utf8 >> ~/.bashrc',
+            'source ~/.bashrc',
+            'yum -y install rsync'
+        ]
+        self.exec_ssh_command(command_list=command_list, external_ip=external_ip)
+
+    def exec_ssh_command(self, command_list: List[str], external_ip: str):
+
+        if len(command_list) <=0 or external_ip is None:
+            return
+
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(external_ip, username=self.user_name, password=self.password)
-        client.exec_command('echo "nameserver 8.8.8.8" > /etc/resolv.conf')
-        client.exec_command('pip3 install --upgrade --ignore-installed pip setuptools')
-        client.exec_command('pip3 install -U "ray[default]"')
-        client.exec_command('echo export LANG=ko_KR.utf8 >> ~/.bashrc')
-        client.exec_command('echo export LC_ALL=ko_KR.utf8 >> ~/.bashrc')
-        client.exec_command('source ~/.bashrc')
-        client.exec_command('yum -y install rsync')
+        for command in command_list:
+            stdin, stdout, stderr = client.exec_command(command)
+            exit_status = stdout.channel.recv_exit_status()
+            if exit_status == 0:
+                print("Process finished")
+            else:
+                print("Error", exit_status)
+
+        client.close()
 
     def get_new_ip(self):
         used_ip_list = []
